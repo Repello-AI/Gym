@@ -1320,7 +1320,7 @@ dependencies = [
     { name = "openai" },
     { name = "pyyaml" },
 ]
-sdist = { hash = "sha256:98017e1b2c62134fd6d3d1c9d6c6b124925b2bc4eb59a4f99f290dc65849f568" }
+sdist = { hash = "sha256:504f0507ba2d4cebffe1181a1bc5832c41d2d9ede32d54bc57dd7b7210e4ac53" }
 
 [package.metadata]
 requires-dist = [
