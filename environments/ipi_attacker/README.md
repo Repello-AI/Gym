@@ -1,0 +1,17 @@
+# ipi_attacker
+
+Single-turn indirect prompt injection attacker. The policy sees the attacker's goal and the conversation the defender
+will have, and writes the text for one untrusted record. A frozen defender (`gpt-6-luna` by default) then does its
+tool-use task over that record; the reward says whether it took the unwanted action and hid it.
+See `resources_servers/ipi_attacker/README.md` for the reward and the keys it needs.
+
+- Integration profile: `custom-gym-verifier`
+- Agent: `simple_agent` (one policy call, no tools)
+- Scorer: `resources_servers/ipi_attacker`
+
+## Data
+
+`data/example.jsonl` holds 5 rows, one per world, from the evaluation split. The train and validation sets are
+delivered separately; add them as datasets with their `jsonl_fpath` when you have them. Each row is the environment's
+training row: `responses_create_params` (the attacker's prompt), `env_id`, `split` and `environment` (read by `verify`,
+never shown to the policy).
