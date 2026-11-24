@@ -19,7 +19,7 @@ exclude-dependencies = ["fasttext-wheel", "alembic", "blinker", "flask", "flask-
 "nemo-lens" = { git = "https://github.com/NVIDIA-NeMo/Lens.git", rev = "4d045c03186b90afdc815db46b671f6a21bc7e98" }
 "nemo-gym" = { path = "../..", editable = true }
 # Private; needs read access to the repository.
-"ipi_envs_rl" = { git = "ssh://git@github.com/Repello-AI/rl-env-generator.git", rev = "1200a3cc62e4cd456c4334c23b164f4b556029a8" }
+"ipi_envs_rl" = { git = "ssh://git@github.com/Repello-AI/rl-env-generator.git", rev = "5ddf7a78e453585c02a23e6997ba3f7b801eea25" }
 
 [project.optional-dependencies]
 telemetry = ["nemo-gym[telemetry]"]

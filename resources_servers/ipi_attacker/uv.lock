@@ -1061,7 +1061,7 @@ telemetry = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ipi-envs-rl", git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=1200a3cc62e4cd456c4334c23b164f4b556029a8" },
+    { name = "ipi-envs-rl", git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=5ddf7a78e453585c02a23e6997ba3f7b801eea25" },
     { name = "nemo-gym", extras = ["dev"], editable = "../../" },
     { name = "nemo-gym", extras = ["telemetry"], marker = "extra == 'telemetry'", editable = "../../" },
 ]
@@ -1313,7 +1313,7 @@ dependencies = [
 [[package]]
 name = "ipi-envs-rl"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=1200a3cc62e4cd456c4334c23b164f4b556029a8#1200a3cc62e4cd456c4334c23b164f4b556029a8" }
+source = { git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=5ddf7a78e453585c02a23e6997ba3f7b801eea25#5ddf7a78e453585c02a23e6997ba3f7b801eea25" }
 dependencies = [
     { name = "anthropic" },
     { name = "ipi-arena-bench" },
