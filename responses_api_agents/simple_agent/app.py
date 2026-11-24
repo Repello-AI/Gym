@@ -76,6 +76,7 @@ from nemo_gym.core import (
     FailureClassificationConfig,
     FailureHeader,
     FailureReportRow,
+    NeMoGymChatCompletion,
     NeMoGymEasyInputMessage,
     NeMoGymFunctionCallOutput,
     NeMoGymResponse,
@@ -91,6 +92,7 @@ from nemo_gym.core import (
     report_for_current_request,
     split_tool_output_images,
 )
+from nemo_gym.models.chat_completions_converter import ChatCompletionsConverter
 from nemo_gym.rollouts.health.timeouts import TimeoutEvent
 from nemo_gym.server_runtime import (
     CHECKPOINT_CLOSE_FOLLOWS_HEADER,
@@ -141,6 +143,29 @@ _CONTINUATION_CLOSE_TIMEOUT_SECONDS = 30.0
 # Legacy /run episodes are checkpointed under their logical rollout ID so a replacement attempt finds them.
 _LEGACY_SESSION_PREFIX = "run:"
 _INPUT_ITEMS_ADAPTER = TypeAdapter(NeMoGymResponseInput)
+# A /run's own policy endpoint, carried to its /v1/responses self-call.
+POLICY_BASE_URL_HEADER = "x-nemo-gym-policy-base-url"
+POLICY_API_KEY_HEADER = "x-nemo-gym-policy-api-key"
+_CHAT_CONVERTER = ChatCompletionsConverter(return_token_id_information=False)
+
+
+@dataclass(frozen=True)
+class PolicyEndpoint:
+    """An OpenAI-compatible endpoint that serves a /run's policy calls in place of the configured model server."""
+
+    base_url: str
+    api_key: str | None = None
+
+    @classmethod
+    def from_request(cls, request: Request) -> "PolicyEndpoint | None":
+        headers = getattr(request, "headers", None)
+        base_url = headers.get(POLICY_BASE_URL_HEADER) if isinstance(headers, Mapping) else None
+        return cls(base_url.rstrip("/"), headers.get(POLICY_API_KEY_HEADER)) if base_url else None
+
+    def headers(self) -> dict[str, str]:
+        return {POLICY_BASE_URL_HEADER: self.base_url} | (
+            {POLICY_API_KEY_HEADER: self.api_key} if self.api_key else {}
+        )
 
 
 class SimpleAgentLoopState(BaseModel):
@@ -349,6 +374,10 @@ def _policy_timeout_failure(error: ClientResponseError) -> NgFailureEvent | None
 
 class SimpleAgentRunRequest(BaseRunRequest):
     model_config = ConfigDict(extra="allow")
+    # Optional per-request policy endpoint, as mini_swe_agent_2 takes it: a trainer that records each episode through
+    # its own OpenAI-compatible URL sets these. Unset, the configured model_server serves the policy.
+    policy_base_url: str | None = Field(default=None, exclude=True)
+    policy_api_key: str | None = Field(default=None, exclude=True)
 
 
 class SimpleAgentVerifyRequest(BaseVerifyRequest):
@@ -661,6 +690,7 @@ class SimpleAgent(SimpleResponsesAPIAgent):
         body: NeMoGymResponseCreateParamsNonStreaming,
         *,
         model_url_path: str,
+        policy: PolicyEndpoint | None = None,
         model_server_cookies: Any = None,
         resources_server_cookies: Any = None,
         tool_access: DirectHTTPToolAccess | None = None,
@@ -756,16 +786,21 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                 if collect_trajectory:
                     turn_timestamp = time()
 
+                async def post_model() -> Any:
+                    if policy is not None:
+                        return await self._post_policy_endpoint(policy, new_body)
+                    return await self.server_client.post(
+                        server_name=self.config.model_server.name,
+                        url_path=model_url_path,
+                        json=new_body,
+                        cookies=model_server_cookies,
+                        **({"headers": {"x-session-id": invocation_id}} if collect_trajectory else {}),
+                    )
+
                 async def call_model() -> tuple[Any, Any]:
                     retry = 0
                     while True:
-                        response = await self.server_client.post(
-                            server_name=self.config.model_server.name,
-                            url_path=model_url_path,
-                            json=new_body,
-                            cookies=model_server_cookies,
-                            **({"headers": {"x-session-id": invocation_id}} if collect_trajectory else {}),
-                        )
+                        response = await post_model()
                         try:
                             await raise_for_status(response)
                         except ClientResponseError as error:
@@ -789,6 +824,12 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                             await asyncio.sleep(0.5 * 2 ** min(retry, 4))
                             retry += 1
                             continue
+                        if policy is not None:
+                            completion = NeMoGymChatCompletion.model_validate(await get_response_json(response))
+                            named = new_body.model_copy(update={"model": completion.model})
+                            return _CHAT_CONVERTER.chat_completion_to_response(named, completion).model_dump(
+                                mode="json"
+                            ), {}
                         return await get_response_json(response), response.cookies
 
                 try:
@@ -1110,6 +1151,7 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                 ) = await (self._create_episode if state is None else partial(self._create_session_episode, state))(
                     body,
                     model_url_path=self.url_path_for_request("/v1/responses", request),
+                    policy=PolicyEndpoint.from_request(request),
                     resources_server_cookies=state.resources_cookies if state is not None else request.cookies,
                     tool_access=state.tool_access if state is not None else None,
                     # With checkpointing on, the Resources Server refuses a tool call that does not name its attempt.
@@ -1173,6 +1215,19 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                     else None
                 )
         return model_response
+
+    async def _post_policy_endpoint(
+        self, policy: PolicyEndpoint, body: NeMoGymResponseCreateParamsNonStreaming
+    ) -> Any:
+        """One policy call to the run's own endpoint, as Chat Completions; the reply is converted back by the caller."""
+        chat = _CHAT_CONVERTER.responses_to_chat_completion_create_params(body).model_dump(exclude_unset=True)
+        chat["model"] = chat.get("model") or self.server_client.global_config_dict.get("policy_model_name")
+        return await http_request(
+            method="POST",
+            url=f"{policy.base_url}/chat/completions",
+            json=chat,
+            headers={"Authorization": f"Bearer {policy.api_key}"} if policy.api_key else {},
+        )
 
     async def _create_session_episode(
         self, state: SimpleAgentSessionState, body: NeMoGymResponseCreateParamsNonStreaming, **kwargs: Any
@@ -1345,6 +1400,8 @@ class SimpleAgent(SimpleResponsesAPIAgent):
             headers = {AGENT_ACTIVATION_HEADER: "1"} if legacy_run is not None else {}
             if owner is not None:
                 headers[SESSION_OWNER_HEADER] = owner
+            if body.policy_base_url:
+                headers |= PolicyEndpoint(body.policy_base_url, body.policy_api_key).headers()
             loop_started = monotonic()
             try:
                 async with step("replay"):

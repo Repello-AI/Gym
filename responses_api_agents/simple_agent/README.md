@@ -14,6 +14,10 @@ Status rules take precedence over kind rules, then `default_action`. The adapter
 
 `final_on_model_timeout: true` remains a compatibility alias for the rule above; explicit false selects `retry`. The alias is resolved once into `outcome_policy` and excluded from the serialized resolved configuration. An explicitly conflicting timeout rule or default is rejected. Prefer `outcome_policy` in new configurations.
 
+## Per-run policy endpoint
+
+A `/run` request may name its own OpenAI-compatible policy endpoint with `policy_base_url` (and `policy_api_key`), as `mini_swe_agent_2` accepts them. A trainer that records each episode through its own URL, such as Miles' per-session proxy, sets them. The agent then sends each policy call to `{policy_base_url}/chat/completions`, converted from the Responses request and back with `ChatCompletionsConverter`; the model is the request's `model`, else `policy_model_name`. Unset, the configured `model_server` serves the policy. Neither field reaches the resources server.
+
 
 # Licensing information
 Code: Apache 2.0
