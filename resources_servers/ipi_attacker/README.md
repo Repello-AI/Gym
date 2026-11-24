@@ -23,8 +23,9 @@ never a real 0. Leading `<think>` blocks are removed from the policy's text firs
 
 ## Dependencies and keys
 
-The scoring code is the `ipi_envs_rl` package, pinned to a commit of a private repository
-(`pyproject.toml`); `uv sync` needs read access to it. The defender and judges call the OpenAI and Anthropic APIs:
+The scoring code is the `ipi_envs_rl` package, delivered separately as `ipi_envs_rl-0.1.0.zip`. Put it at
+`vendor/ipi_envs_rl-0.1.0.zip` in this folder (git-ignored) before `uv sync`. `uv.lock` pins the file's sha256:
+`98017e1b2c62134fd6d3d1c9d6c6b124925b2bc4eb59a4f99f290dc65849f568` (check it with `shasum -a 256`). The defender and judges call the OpenAI and Anthropic APIs:
 set `ipi_attacker_api_key_file` in `env.yaml` to an env file with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
 `max_concurrent_episodes` bounds the episodes in flight (one thread each). Every defender and judge call is logged to
 `call_log_path`.

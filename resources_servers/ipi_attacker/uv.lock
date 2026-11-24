@@ -1061,7 +1061,7 @@ telemetry = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ipi-envs-rl", git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=5ddf7a78e453585c02a23e6997ba3f7b801eea25" },
+    { name = "ipi-envs-rl", path = "vendor/ipi_envs_rl-0.1.0.zip" },
     { name = "nemo-gym", extras = ["dev"], editable = "../../" },
     { name = "nemo-gym", extras = ["telemetry"], marker = "extra == 'telemetry'", editable = "../../" },
 ]
@@ -1313,12 +1313,21 @@ dependencies = [
 [[package]]
 name = "ipi-envs-rl"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/Repello-AI/rl-env-generator.git?rev=5ddf7a78e453585c02a23e6997ba3f7b801eea25#5ddf7a78e453585c02a23e6997ba3f7b801eea25" }
+source = { path = "vendor/ipi_envs_rl-0.1.0.zip" }
 dependencies = [
     { name = "anthropic" },
     { name = "ipi-arena-bench" },
     { name = "openai" },
     { name = "pyyaml" },
+]
+sdist = { hash = "sha256:98017e1b2c62134fd6d3d1c9d6c6b124925b2bc4eb59a4f99f290dc65849f568" }
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.100" },
+    { name = "ipi-arena-bench", git = "https://github.com/lavish619/ipi_arena_os.git?rev=60b68d0d26a54728cde3752bbbcf719940c319fa" },
+    { name = "openai", specifier = ">=2.45" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
