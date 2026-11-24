@@ -24,7 +24,7 @@ from time import monotonic, perf_counter, time
 from typing import Any, ClassVar
 from uuid import uuid4
 
-from aiohttp import ClientResponseError
+from aiohttp import ClientResponseError, ClientTimeout
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import (
@@ -269,6 +269,13 @@ class SimpleAgentConfig(BaseResponsesAPIAgentConfig):
             "Whether to execute model-requested tools. Disabling tool execution is supported only for agent-session "
             "requests, where unresolved function calls are returned to the Environment Server."
         ),
+    )
+    allow_policy_base_url: bool = Field(
+        default=False,
+        description="Accept a per-run policy_base_url / policy_api_key; the agent then sends policy calls to that URL.",
+    )
+    policy_request_timeout_seconds: float = Field(
+        default=1800.0, gt=0, description="Total time for one policy call to a per-run policy_base_url."
     )
     outcome_policy: SimpleAgentOutcomePolicyConfig = Field(default_factory=SimpleAgentOutcomePolicyConfig)
     final_on_model_timeout: bool = Field(
@@ -818,7 +825,7 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                                 error.status,
                                 retry + 1,
                                 self.config.max_model_retries,
-                                self.config.model_server.name,
+                                policy.base_url if policy is not None else self.config.model_server.name,
                                 rollout_id,
                             )
                             await asyncio.sleep(0.5 * 2 ** min(retry, 4))
@@ -1092,7 +1099,12 @@ class SimpleAgent(SimpleResponsesAPIAgent):
         state = self._require_agent_session(agent_session_id) if agent_session_id is not None else None
         if state is not None and not isinstance(state, SimpleAgentSessionState):
             raise TypeError("Expected Simple Agent session state")
+        policy = self._policy_endpoint(PolicyEndpoint.from_request(request))
         if state is not None and state.request.continuation is not None:
+            if policy is not None:
+                raise HTTPException(
+                    status_code=400, detail="policy_base_url is not supported on agent-session activations"
+                )
             # Every activation of the session arrives on the same rollout route.
             state.model_url_path = self.url_path_for_request("/v1/responses", request)
             return await self.activate_agent_session(request, body)
@@ -1151,7 +1163,8 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                 ) = await (self._create_episode if state is None else partial(self._create_session_episode, state))(
                     body,
                     model_url_path=self.url_path_for_request("/v1/responses", request),
-                    policy=PolicyEndpoint.from_request(request),
+                    # Only when set, so subclasses whose episode takes no policy keep working.
+                    **({"policy": policy} if policy is not None else {}),
                     resources_server_cookies=state.resources_cookies if state is not None else request.cookies,
                     tool_access=state.tool_access if state is not None else None,
                     # With checkpointing on, the Resources Server refuses a tool call that does not name its attempt.
@@ -1216,6 +1229,12 @@ class SimpleAgent(SimpleResponsesAPIAgent):
                 )
         return model_response
 
+    def _policy_endpoint(self, policy: PolicyEndpoint | None) -> PolicyEndpoint | None:
+        """The run's policy endpoint, refused unless the config allows one."""
+        if policy is not None and not self.config.allow_policy_base_url:
+            raise HTTPException(status_code=400, detail="policy_base_url needs allow_policy_base_url: true")
+        return policy
+
     async def _post_policy_endpoint(
         self, policy: PolicyEndpoint, body: NeMoGymResponseCreateParamsNonStreaming
     ) -> Any:
@@ -1227,6 +1246,10 @@ class SimpleAgent(SimpleResponsesAPIAgent):
             url=f"{policy.base_url}/chat/completions",
             json=chat,
             headers={"Authorization": f"Bearer {policy.api_key}"} if policy.api_key else {},
+            # A proxy that already took the request must not record a second generation.
+            _resend_after_disconnect=False,
+            _max_num_tries=3,
+            timeout=ClientTimeout(total=self.config.policy_request_timeout_seconds),
         )
 
     async def _create_session_episode(
@@ -1401,7 +1424,7 @@ class SimpleAgent(SimpleResponsesAPIAgent):
             if owner is not None:
                 headers[SESSION_OWNER_HEADER] = owner
             if body.policy_base_url:
-                headers |= PolicyEndpoint(body.policy_base_url, body.policy_api_key).headers()
+                headers |= self._policy_endpoint(PolicyEndpoint(body.policy_base_url, body.policy_api_key)).headers()
             loop_started = monotonic()
             try:
                 async with step("replay"):

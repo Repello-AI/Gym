@@ -4460,8 +4460,20 @@ class TestContinuationSessions:
 class TestPolicyEndpoint:
     POLICY = {POLICY_BASE_URL_HEADER: "http://trainer:9000/session/7/v1", POLICY_API_KEY_HEADER: "secret"}
 
-    async def test_run_sends_its_policy_endpoint_to_the_turn_loop_and_not_to_verify(self) -> None:
+    @staticmethod
+    def agent(allow: bool = True) -> tuple[SimpleAgent, MagicMock]:
         server, server_client = _make_agent(False)
+        server.config.allow_policy_base_url = allow
+        return server, server_client
+
+    async def test_a_policy_endpoint_is_refused_unless_the_config_allows_it(self) -> None:
+        server, server_client = self.agent(allow=False)
+        reply = TestClient(server.setup_webserver()).post("/v1/responses", json={"input": "goal"}, headers=self.POLICY)
+        assert reply.status_code == 400
+        server_client.post.assert_not_called()
+
+    async def test_run_sends_its_policy_endpoint_to_the_turn_loop_and_not_to_verify(self) -> None:
+        server, server_client = self.agent()
         reply = {
             "id": "r",
             "created_at": 0.0,
@@ -4493,7 +4505,7 @@ class TestPolicyEndpoint:
         assert not {"policy_base_url", "policy_api_key"} & set(calls["/verify"]["json"])
 
     async def test_policy_calls_go_to_the_endpoint_as_chat_completions(self, monkeypatch: MonkeyPatch) -> None:
-        server, server_client = _make_agent(False)
+        server, server_client = self.agent()
         server_client.global_config_dict = {"observability_enabled": False, "policy_model_name": "attacker"}
         sent = []
 
