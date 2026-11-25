@@ -77,6 +77,15 @@ def cleanup():
     time.sleep(5)
 
 
+def local_checkpoint(hf_checkpoint: str) -> str:
+    """A local folder with the full checkpoint: the converter reads the weights from disk and never downloads them."""
+    if Path(hf_checkpoint).is_dir():
+        return hf_checkpoint
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(hf_checkpoint)
+
+
 def prepare(args: ScriptArgs):
     """Convert the HF checkpoint to torch_dist format if not already done."""
     args.create_backend().convert_checkpoint(
@@ -244,6 +253,7 @@ def execute(args: ScriptArgs, prompt_data: str):
 @command_utils.dataclass_cli
 def main(args: ScriptArgs):
     cleanup()
+    args.hf_checkpoint = local_checkpoint(args.hf_checkpoint)
     prompt_data = preflight(args)
     if not args.skip_prepare:
         prepare(args)
