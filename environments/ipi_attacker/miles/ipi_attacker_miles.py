@@ -6,12 +6,16 @@
   sample, with the row's prompt as the attacker's input and the Miles session URL as ``policy_base_url``.
 - ``reward_func``: the reward hook (``--custom-rm-path ipi_attacker_miles.reward_func``).
 - ``drop_masked``: the sample filter (``--rollout-sample-filter-path ipi_attacker_miles.drop_masked``).
+- ``normalize_unmasked``: the reward post-process (``--custom-reward-post-process-path
+  ipi_attacker_miles.normalize_unmasked``); Miles runs it in place of its own GRPO normalization.
 
 Only stdlib and httpx: importing miles pulls in torch, and this module must load on CPU-only machines too.
 
 Env vars:
-  NEMO_GYM_URL          base URL of the ipi_attacker agent server (default: http://localhost:12000).
-  NEMO_GYM_RUN_TIMEOUT  wall-clock cap in seconds for one /run call (default: 3600).
+  NEMO_GYM_URL               base URL of the ipi_attacker agent server (default: http://localhost:12000).
+  NEMO_GYM_RUN_TIMEOUT       wall-clock cap in seconds for one /run call (default: 3600).
+  IPI_MASK_BREAKER_RATE      a rollout counts as mostly masked above this fraction (default: 0.5).
+  IPI_MASK_BREAKER_ROLLOUTS  stop after this many mostly-masked rollouts in a row (default: 3).
 """
 
 import asyncio
@@ -19,6 +23,7 @@ import logging
 import math
 import os
 import random
+import statistics
 from typing import Any
 
 import httpx
@@ -30,6 +35,7 @@ DEFAULT_GYM_URL = "http://localhost:12000"
 DEFAULT_RUN_TIMEOUT_S = "3600"
 CONNECT_ATTEMPTS = 3
 CONNECT_BACKOFF_S = (1.0, 5.0)
+_mostly_masked_streak = 0  # consecutive rollouts over the breaker's masked rate
 
 
 def run_body(base_url: str, prompt: Any, request_kwargs: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
@@ -115,12 +121,13 @@ def _is_masked(rollout: list) -> bool:
 
 
 def drop_masked(args, data: list) -> None:
-    """Leave masked samples out of the loss, at their group's unmasked mean reward.
+    """Leave masked samples out of the loss, and stop training once most samples keep coming back masked.
 
-    ``remove_sample`` alone keeps a sample's reward in its group's normalization, so a masked placeholder 0 would
-    shift its siblings' advantages. A group entry is one rollout: a sample, or a list of session-branch samples that
-    share one reward.
+    A masked sample's placeholder reward becomes its group's unmasked mean, so the logged raw reward is not pulled
+    down by failures; ``normalize_unmasked`` leaves it out of the advantages. A group entry is one rollout: a sample,
+    or a list of session-branch samples that share one reward.
     """
+    global _mostly_masked_streak
     total = masked = 0
     for group in data:
         rollouts = [entry if isinstance(entry, list) else [entry] for entry in group]
@@ -134,4 +141,43 @@ def drop_masked(args, data: list) -> None:
                     sample.remove_sample = True
                     sample.reward = baseline
     if masked:
-        logger.info(f"drop_masked: left {masked}/{total} masked rollouts out of the loss")
+        logger.warning(f"drop_masked: left {masked}/{total} masked rollouts out of the loss")
+    rate = float(os.getenv("IPI_MASK_BREAKER_RATE", "0.5"))
+    limit = int(os.getenv("IPI_MASK_BREAKER_ROLLOUTS", "3"))
+    _mostly_masked_streak = _mostly_masked_streak + 1 if total and masked / total > rate else 0
+    if _mostly_masked_streak >= limit:
+        raise RuntimeError(
+            f"drop_masked: over {rate:.0%} of samples masked {limit} rollouts in a row; "
+            "check the Gym servers, API keys and judge before resuming"
+        )
+
+
+def normalize_unmasked(args, samples: list) -> tuple[list[float], list[float]]:
+    """GRPO advantages per prompt group over unmasked rollouts only; a masked sample gets 0.
+
+    Miles calls this in place of its own normalization, which counts masked samples in each group's std. A rollout's
+    segments share one reward and count once, keyed as Miles keys them.
+    """
+    raw = [sample.get_reward_value(args) for sample in samples]
+    groups: dict[Any, dict[Any, list[int]]] = {}
+    for row, sample in enumerate(samples):
+        if sample.group_index is None:
+            raise ValueError("normalize_unmasked needs each sample's group_index")
+        rollout = sample.rollout_id if sample.rollout_id is not None else sample.index
+        groups.setdefault(sample.group_index, {}).setdefault(rollout, []).append(row)
+    scale_by_std = args.advantage_estimator in ("grpo", "gspo") and args.grpo_std_normalization
+    advantages = [0.0] * len(samples)
+    for rollouts in groups.values():
+        valid = [rows for rows in rollouts.values() if not samples[rows[0]].remove_sample]
+        rewards = [raw[rows[0]] for rows in valid]
+        if not rewards:
+            continue
+        mean = statistics.fmean(rewards)
+        std = statistics.stdev(rewards) if len(rewards) > 1 else 0.0
+        for rows, reward in zip(valid, rewards):
+            advantage = reward - mean
+            if scale_by_std and std > 0:
+                advantage /= std + 1e-6
+            for row in rows:
+                advantages[row] = advantage
+    return raw, advantages

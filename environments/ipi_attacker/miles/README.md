@@ -7,7 +7,7 @@ imports hooks by dotted path, so this folder only has to be on `PYTHONPATH`.
 
 | File | What it is |
 |---|---|
-| `ipi_attacker_miles.py` | The hooks: `run` (agent function), `reward_func` (reward hook), `drop_masked` (sample filter) |
+| `ipi_attacker_miles.py` | The hooks: `run` (agent function), `reward_func` (reward hook), `drop_masked` (sample filter), `normalize_unmasked` (reward post-process) |
 | `run.py` | A Miles launcher sized for a smoke run on one 80 GB GPU, with a data preflight |
 | `env.yaml.example` | The Gym `env.yaml` for training behind Miles |
 | `api_scan.py` | Sends a few rows through the running Gym servers with an API model as the attacker (paid) |
@@ -18,12 +18,20 @@ imports hooks by dotted path, so this folder only has to be on `PYTHONPATH`.
   top level, and the Miles session URL as `policy_base_url`. It returns `reward`, `mask_sample` and `failure_kind`.
   It never raises: Miles would log the exception and train the sample as reward 0. A timeout, transport error,
   non-2xx response, or simple_agent's policy-timeout row (HTTP 200, no reward) comes back masked, with
-  `failure_kind` `ipi_attacker:run_failed`, `ipi_attacker:run_http_<status>`, or the row's own kind. Only a refused
-  connection is retried, since any later failure may have started a paid episode.
-- `drop_masked` sets `remove_sample` on each masked sample and gives it the mean reward of its group's unmasked
-  samples. `remove_sample` alone leaves a sample's reward in the GRPO group mean and std, so a placeholder 0 would
-  shift its siblings' advantages.
+  `failure_kind` `ipi_attacker:run_failed`, `ipi_attacker:run_http_<status>`, `ipi_attacker:bad_response` (a body
+  that is not an object or a reward that is not a finite number), or the row's own kind. Only a refused connection
+  is retried, since any later failure may have started a paid episode.
 - `reward_func` reads `metadata["reward"]`.
+- `drop_masked` sets `remove_sample` on each masked sample, including one with no reward at all (its agent function
+  died, so Miles kept the recorded tokens without `run`'s result). The placeholder reward becomes the mean of the
+  group's unmasked samples, so the logged raw reward is not pulled down by failures. It also stops training: when
+  more than `IPI_MASK_BREAKER_RATE` (0.5) of a rollout's samples are masked for `IPI_MASK_BREAKER_ROLLOUTS` (3)
+  rollouts in a row, it raises, since a dead key, judge or Gym server would otherwise train on nothing.
+- `normalize_unmasked` computes the GRPO advantages; Miles calls a reward post-process in place of its own
+  normalization. That normalization counts every sample in a group's std, even with `remove_sample`, so masked
+  samples would scale the others' advantages with the failure rate. This hook takes each group's mean and std over unmasked rollouts only
+  (as NeMo RL's `valid_mask` does), gives masked samples 0, counts a rollout's segments once, and honours
+  `--disable-grpo-std-normalization`. Miles' `--length-penalty-coeff` does not apply through it.
 
 Tested against Miles `b55c2a533f`. The agent-function signature (`base_url, prompt, request_kwargs, metadata`) is
 Miles' internal contract, so pin the Miles commit.
@@ -84,7 +92,9 @@ so both reach each other on localhost.
 
 Inside the container, from `/root/Gym/environments/ipi_attacker/miles`. `run.py` first drops blocked and `audit_only`
 rows and checks every prompt fits `max_seq_len - rollout_max_response_len` with the model's chat template; then it
-converts the checkpoint on first run (`--skip-prepare` to skip) and launches Miles.
+converts the checkpoint on first run (`--skip-prepare` to skip) and launches Miles. Like Miles' example launcher, it
+first kills every process matching `sglang`, `train.py` or `MegatronTrain`: run it only inside the container, never
+on a shared host.
 
 1. One rollout, no training (8 episodes, paid):
 
@@ -109,20 +119,28 @@ Out of memory: `--megatron-model-type qwen3-1.7B --hf-checkpoint Qwen/Qwen3-1.7B
 
 ## Flags for another launcher
 
-Put this folder on `PYTHONPATH` (next to Megatron and Miles), set `NEMO_GYM_URL` (default `http://localhost:12000`)
-and optionally `NEMO_GYM_RUN_TIMEOUT` (seconds per `/run`, default 3600), and pass:
+Put this folder on `PYTHONPATH` (next to Megatron and Miles), set `NEMO_GYM_URL` (default `http://localhost:12000`),
+optionally `NEMO_GYM_RUN_TIMEOUT` (seconds per `/run`, default 3600) and the two breaker variables above, in the
+environment of Miles' rollout processes (the Ray runtime env), and pass:
 
 ```bash
 --input-key prompt --metadata-key metadata
+--advantage-estimator grpo
 --custom-generate-function-path miles.rollout.generate_hub.agentic_tool_call.generate
 --custom-agent-function-path ipi_attacker_miles.run
 --custom-rm-path ipi_attacker_miles.reward_func
 --rollout-sample-filter-path ipi_attacker_miles.drop_masked
+--custom-reward-post-process-path ipi_attacker_miles.normalize_unmasked   # replaces Miles' GRPO normalization
 --dynamic-sampling-filter-path miles.rollout.filter_hub.common_filters.apply_aborted_filter
---use-session-server --session-server-ip 0.0.0.0
+--use-session-server --session-server-ip 127.0.0.1
 --tito-model qwen3                   # the policy model's TITO family
---session-server-external-host <IP>  # when the Gym host cannot resolve the trainer's hostname
 ```
+
+Gym and the session server bind to loopback, because both start paid episodes without authentication and
+`allow_policy_base_url` lets a caller pick the URL the agent posts to. When Gym runs on another host than the
+trainer, bind the session server wider (`--session-server-ip 0.0.0.0`, with `--session-server-external-host <IP>`
+when the Gym host cannot resolve the trainer's hostname) and Gym (`default_host` in `env.yaml`), and firewall both
+ports to the two hosts.
 
 ## Scaling to the main run
 
@@ -136,6 +154,8 @@ and optionally `NEMO_GYM_RUN_TIMEOUT` (seconds per `/run`, default 3600), and pa
 ## Known limits
 
 - `rollout/raw_reward` includes masked samples at their substituted reward.
-- Miles regenerates an aborted group until the batch fills, so the paid episode count is not capped.
+- Miles regenerates an aborted group until the batch fills, so the paid episode count is not capped. A Gym failure
+  before the policy call (no tokens recorded) aborts the sample, so it loops there rather than tripping the breaker.
+- A `/run` past `NEMO_GYM_RUN_TIMEOUT` is masked, but its Gym episode keeps running and spending until it ends.
 - simple_agent's client resends `/verify` after a dropped local connection, which runs that episode twice.
 - Don't enable sample dumps that log `metadata`: it holds the environment's answer side.

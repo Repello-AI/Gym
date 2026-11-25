@@ -56,6 +56,10 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
 
     nemo_gym_url: str = os.environ.get("NEMO_GYM_URL", DEFAULT_GYM_URL)
     nemo_gym_run_timeout: str = os.environ.get("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S)
+    mask_breaker_rate: str = os.environ.get("IPI_MASK_BREAKER_RATE", "0.5")
+    mask_breaker_rollouts: str = os.environ.get("IPI_MASK_BREAKER_ROLLOUTS", "3")
+    # Loopback keeps the session server off the network; bind wider only when Gym runs on another host.
+    session_server_ip: str = "127.0.0.1"
     session_server_external_host: str = ""
 
 
@@ -134,6 +138,7 @@ def execute(args: ScriptArgs, prompt_data: str):
 
     grpo_args = (
         "--advantage-estimator grpo "
+        "--custom-reward-post-process-path ipi_attacker_miles.normalize_unmasked "
         "--use-kl-loss "
         "--kl-loss-coef 0.01 "
         "--kl-loss-type low_var_kl "
@@ -175,7 +180,7 @@ def execute(args: ScriptArgs, prompt_data: str):
         "--rollout-sample-filter-path ipi_attacker_miles.drop_masked "
         "--dynamic-sampling-filter-path miles.rollout.filter_hub.common_filters.apply_aborted_filter "
         "--use-session-server "
-        "--session-server-ip 0.0.0.0 "
+        f"--session-server-ip {args.session_server_ip} "
         "--session-server-port 30000 "
         "--session-server-workers 32 "
         f"{external_host_arg}"
@@ -208,6 +213,8 @@ def execute(args: ScriptArgs, prompt_data: str):
             "PYTHONPATH": f"{args.megatron_path}:{SCRIPT_DIR}:{command_utils.repo_base_dir}",
             "NEMO_GYM_URL": args.nemo_gym_url,
             "NEMO_GYM_RUN_TIMEOUT": args.nemo_gym_run_timeout,
+            "IPI_MASK_BREAKER_RATE": args.mask_breaker_rate,
+            "IPI_MASK_BREAKER_ROLLOUTS": args.mask_breaker_rollouts,
         },
     )
 

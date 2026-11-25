@@ -240,3 +240,35 @@ def test_masked_samples_leave_the_loss_and_take_their_siblings_mean(hooks) -> No
 def test_reward_func_reads_the_run_reward(hooks) -> None:
     assert asyncio.run(hooks.reward_func(None, sample(0.5))) == 0.5
     assert asyncio.run(hooks.reward_func(None, [sample(0.5), sample(1.0)])) == [0.5, 1.0]
+
+
+def trained(rollout_id, group, reward, removed=False):
+    return SimpleNamespace(
+        rollout_id=rollout_id,
+        index=rollout_id,
+        group_index=group,
+        reward=reward,
+        remove_sample=removed,
+        get_reward_value=lambda args: reward,
+    )
+
+
+@pytest.mark.parametrize("std_on, spread", [(True, 0.5 / (0.5**0.5 + 1e-6)), (False, 0.5)])
+def test_advantages_leave_masked_rollouts_out_of_the_group_mean_and_std(hooks, std_on, spread) -> None:
+    args = SimpleNamespace(advantage_estimator="grpo", grpo_std_normalization=std_on)
+    # Rollout 1 has two segments that share a reward and count once; rollout 2 is masked.
+    samples = [trained(0, 0, 1.0), trained(1, 0, 0.0), trained(1, 0, 0.0), trained(2, 0, 0.5, removed=True)]
+    samples += [trained(3, 1, 0.0, removed=True), trained(4, 1, 1.0)]
+    raw, advantages = hooks.normalize_unmasked(args, samples)
+    assert raw == [1.0, 0.0, 0.0, 0.5, 0.0, 1.0]
+    assert advantages == pytest.approx([spread, -spread, -spread, 0.0, 0.0, 0.0])
+
+
+def test_drop_masked_stops_training_after_consecutive_mostly_masked_rollouts(hooks) -> None:
+    mostly_masked = lambda: [[sample(1.0), sample(0.0, masked=True), sample(0.0, masked=True)]]  # noqa: E731
+    hooks.drop_masked(None, mostly_masked())
+    hooks.drop_masked(None, [[sample(1.0), sample(0.0)]])  # a healthy rollout resets the count
+    hooks.drop_masked(None, mostly_masked())
+    hooks.drop_masked(None, mostly_masked())
+    with pytest.raises(RuntimeError, match="3 rollouts in a row"):
+        hooks.drop_masked(None, mostly_masked())
