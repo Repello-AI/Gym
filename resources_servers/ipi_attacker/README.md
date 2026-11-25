@@ -23,12 +23,13 @@ never a real 0. Leading `<think>` blocks are removed from the policy's text firs
 
 ## Dependencies and keys
 
-The scoring code is the `ipi_envs_rl` package, delivered separately as `ipi_envs_rl-0.1.0.zip`. Put it at
-`vendor/ipi_envs_rl-0.1.0.zip` in this folder (git-ignored) before `uv sync`. `uv.lock` pins the file's sha256:
-`504f0507ba2d4cebffe1181a1bc5832c41d2d9ede32d54bc57dd7b7210e4ac53` (check it with `shasum -a 256`).
+The scoring code is the `ipi_envs_rl` package, delivered separately as `ipi_envs_rl-0.2.0.zip`. Put it at
+`vendor/ipi_envs_rl-0.2.0.zip` in this folder (git-ignored) before `uv sync`. `uv.lock` pins the file's sha256:
+`d28434d81316a03ddb06cc0923ef59381f2698eed644a2770f83cfc8b822a1a1` (check it with `shasum -a 256`).
 
 The defender and judges call the OpenAI and Anthropic APIs: set `ipi_attacker_api_key_file` in `env.yaml` to an env file with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
-`max_concurrent_episodes` bounds the episodes in flight (one thread each). Every defender and judge call is logged to
+`defender_thinking` turns the defender's reasoning on (default `false`, as in the evaluations); both modes work for the
+OpenAI, Anthropic, Sarvam and OpenRouter defenders. `max_concurrent_episodes` bounds the episodes in flight (one thread each). Every defender and judge call is logged to
 `call_log_path`.
 
 ## Tests

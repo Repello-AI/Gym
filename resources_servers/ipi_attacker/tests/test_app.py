@@ -92,6 +92,25 @@ def test_startup_refuses_a_missing_key_file_or_unqualified_security_reader(tmp_p
             IpiAttackerResourcesServer(config=config, server_client=MagicMock(spec=ServerClient))
 
 
+def test_defender_thinking_picks_the_defender_client(tmp_path) -> None:
+    keys = tmp_path / "keys.env"
+    keys.write_text("OPENAI_API_KEY=x\nANTHROPIC_API_KEY=y\n")
+    built = {}
+    for thinking in (False, True):
+        config = IpiAttackerResourcesServerConfig(
+            host="127.0.0.1",
+            port=0,
+            entrypoint="app.py",
+            name="ipi_attacker",
+            api_key_file=str(keys),
+            defender_thinking=thinking,
+            call_log_path=str(tmp_path / "calls.jsonl"),
+        )
+        server = IpiAttackerResourcesServer(config=config, server_client=MagicMock(spec=ServerClient))
+        built[thinking] = type(server._clients[0].client).__name__
+    assert built == {False: "OpenAICompatClient", True: "OpenAIResponsesClient"}
+
+
 @pytest.fixture
 def hooks():
     spec = importlib.util.spec_from_file_location("ipi_attacker_miles", MILES_HOOKS)

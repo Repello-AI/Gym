@@ -10,6 +10,7 @@ ipi_attacker_resources_server:
       api_key_file: ${oc.select:ipi_attacker_api_key_file,''}
       defender_model: gpt-6-luna
       defender_max_tokens: 16000
+      defender_thinking: false
       concealment_model: gpt-5.6-luna
       concealment_max_tokens: 8000
       security_model: claude-sonnet-5-5

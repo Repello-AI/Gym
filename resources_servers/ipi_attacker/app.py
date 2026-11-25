@@ -48,6 +48,9 @@ class IpiAttackerResourcesServerConfig(BaseResourcesServerConfig):
     )
     defender_model: str = "gpt-6-luna"
     defender_max_tokens: int = Field(default=16000, ge=1)
+    defender_thinking: bool = Field(
+        default=False, description="Defender reasoning on (default off, as in the evaluations)."
+    )
     concealment_model: str = "gpt-5.6-luna"
     concealment_max_tokens: int = Field(default=8000, ge=1)
     security_model: str = Field(default="claude-sonnet-5-5", description="Needs a qualified security-reader profile.")
@@ -96,7 +99,7 @@ class IpiAttackerResourcesServer(SimpleResourcesServer):
         c = self.config
         if not Path(c.api_key_file).is_file():
             raise ValueError(f"api_key_file {c.api_key_file!r} is not a file")
-        defender = {"model": c.defender_model, "max_tokens": c.defender_max_tokens}
+        defender = {"model": c.defender_model, "max_tokens": c.defender_max_tokens, "thinking": c.defender_thinking}
         judges = {
             "concealment_model": c.concealment_model,
             "concealment_max_tokens": c.concealment_max_tokens,
