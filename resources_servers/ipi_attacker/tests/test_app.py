@@ -265,7 +265,9 @@ def test_advantages_leave_masked_rollouts_out_of_the_group_mean_and_std(hooks, s
 
 
 def test_drop_masked_stops_training_after_consecutive_mostly_masked_rollouts(hooks) -> None:
-    mostly_masked = lambda: [[sample(1.0), sample(0.0, masked=True), sample(0.0, masked=True)]]  # noqa: E731
+    def mostly_masked():
+        return [[sample(1.0), sample(0.0, masked=True), sample(0.0, masked=True)]]
+
     hooks.drop_masked(None, mostly_masked())
     hooks.drop_masked(None, [[sample(1.0), sample(0.0)]])  # a healthy rollout resets the count
     hooks.drop_masked(None, mostly_masked())
