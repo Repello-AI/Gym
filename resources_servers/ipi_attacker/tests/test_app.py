@@ -155,9 +155,22 @@ def test_run_body_sends_the_prompt_and_is_a_valid_verify_request(hooks) -> None:
     assert body["policy_base_url"] == "http://miles/sessions/s1/v1"
     request = IpiAttackerVerifyRequest.model_validate(body | {"response": response})
     assert (request.environment, request.env_id) == (metadata["environment"], metadata["env_id"])
-    assert hooks.run_body("http://miles", "write it", {}, {})["responses_create_params"]["input"] == [
-        {"role": "user", "content": "write it"}
-    ]
+
+
+@pytest.mark.parametrize("prompt", ["<|User|>write it<|Assistant|>", [], ["write it"]])
+def test_run_masks_a_prompt_that_is_not_chat_messages_and_sends_nothing(hooks, monkeypatch, prompt) -> None:
+    bodies = []
+    monkeypatch.setattr(
+        hooks.httpx,
+        "AsyncClient",
+        lambda **kwargs: ASYNC_CLIENT(
+            transport=httpx.MockTransport(lambda request: bodies.append(request) or httpx.Response(200, json={})),
+            **kwargs,
+        ),
+    )
+    _, metadata, _ = miles_row()
+    result = asyncio.run(hooks.run("http://miles/sessions/s1", prompt, {}, metadata))
+    assert (result, bodies) == (masked("ipi_attacker:prompt_not_messages"), [])
 
 
 @pytest.mark.parametrize(

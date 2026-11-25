@@ -21,7 +21,9 @@ imports hooks by dotted path, so this folder only has to be on `PYTHONPATH`.
   non-2xx response, or simple_agent's policy-timeout row (HTTP 200, no reward) comes back masked, with
   `failure_kind` `ipi_attacker:run_failed`, `ipi_attacker:run_http_<status>`, `ipi_attacker:bad_response` (a body
   that is not an object or a reward that is not a finite number), or the row's own kind. Only a refused connection
-  is retried, since any later failure may have started a paid episode.
+  is retried, since any later failure may have started a paid episode. A prompt that is not a list of chat messages
+  (`--apply-chat-template` renders it to text first) is masked as `ipi_attacker:prompt_not_messages` without a
+  `/run`; with no policy call recorded, Miles aborts and regenerates the sample, so the run stalls on that error.
 - `reward_func` reads `metadata["reward"]`.
 - `drop_masked` sets `remove_sample` on each masked sample, including one with no reward at all (its agent function
   died, so Miles kept the recorded tokens without `run`'s result). The placeholder reward becomes the mean of the
@@ -152,6 +154,9 @@ environment of Miles' rollout processes (the Ray runtime env), and pass:
 --use-session-server
 --tito-model qwen3                   # the policy model's TITO family
 ```
+
+Don't pass `--apply-chat-template`: the session server applies the chat template, and the hook needs the prompt as
+messages. Miles' DeepSeek V4.1 launcher always passes it, so delete it from `rollout_args` in that script.
 
 Gym binds to loopback, because it starts paid episodes without authentication and `allow_policy_base_url` lets a
 caller pick the URL the agent posts to. The session server keeps Miles' default bind, the address Ray placed it

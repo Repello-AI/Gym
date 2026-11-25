@@ -40,13 +40,17 @@ _mostly_masked_streak = 0  # consecutive rollouts over the breaker's masked rate
 
 def run_body(base_url: str, prompt: Any, request_kwargs: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
     """The /run body: the row's fields at the top level, the prompt as input, and the session as the policy."""
-    params: dict[str, Any] = {"input": [{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt}
+    params: dict[str, Any] = {"input": prompt}
     for key in ("temperature", "top_p"):
         if request_kwargs.get(key) is not None:
             params[key] = request_kwargs[key]
     if request_kwargs.get("max_tokens") is not None:
         params["max_output_tokens"] = request_kwargs["max_tokens"]
     return {**metadata, "responses_create_params": params, "policy_base_url": f"{base_url}/v1"}
+
+
+def _is_messages(prompt: Any) -> bool:
+    return isinstance(prompt, list) and bool(prompt) and all(isinstance(m, dict) and "role" in m for m in prompt)
 
 
 def _masked(failure_kind: str) -> dict[str, Any]:
@@ -80,6 +84,12 @@ async def run(
     Never raises: Miles swallows an agent-function exception and trains the sample as reward 0, so every failure
     comes back masked instead.
     """
+    if not _is_messages(prompt):
+        logger.error(
+            "ipi_attacker: the prompt is not a list of chat messages; drop --apply-chat-template, "
+            "which renders it to text before this hook"
+        )
+        return _masked("ipi_attacker:prompt_not_messages")
     try:
         url = f"{os.getenv('NEMO_GYM_URL', DEFAULT_GYM_URL).rstrip('/')}/run"
         timeout_s = float(os.getenv("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S))
