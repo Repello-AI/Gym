@@ -40,7 +40,7 @@ Written against Miles `b55c2a533f`. The hook signatures are Miles' internal cont
 
 These are not in git:
 
-- `ipi_envs_rl-0.2.1.zip`, sha256 `a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839`.
+- `ipi_envs_rl-0.2.2.zip`, sha256 `2f7a02adc40975e7cf3b31f46289eab0abc51d6afcaee8bcccbc673c4310e8d6`.
 - `ipi-attacker-data.zip` (or its folder) with `train.jsonl` and `validation.jsonl`.
 - A keys file with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` (plus `SARVAM_API_KEY` or `OPENROUTER_API_KEY` for
   those defenders).
@@ -59,8 +59,8 @@ so both reach each other on localhost.
    git clone -b feat/ipi-attacker-own-envs https://github.com/Repello-AI/Gym.git && cd Gym
    uv venv --python 3.13 && source .venv/bin/activate && uv sync
    mkdir -p resources_servers/ipi_attacker/vendor
-   cp /path/to/ipi_envs_rl-0.2.1.zip resources_servers/ipi_attacker/vendor/
-   shasum -a 256 resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.1.zip   # must match the sha in uv.lock
+   cp /path/to/ipi_envs_rl-0.2.2.zip resources_servers/ipi_attacker/vendor/
+   shasum -a 256 resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.2.zip   # must match the sha in uv.lock
    cp environments/ipi_attacker/miles/env.yaml.example env.yaml                 # set ipi_attacker_api_key_file
    ```
 

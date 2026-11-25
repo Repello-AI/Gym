@@ -8,17 +8,17 @@
 # The pod's image must be radixark/miles (the Megatron backend needs its patched SGLang and Megatron-LM):
 #   radixark/miles:dev-202611181218   (the first build after the tested Miles commit)
 #
-# Upload to the pod first: ipi_envs_rl-0.2.1.zip, ipi-attacker-data.zip (or its folder), and a keys file with
+# Upload to the pod first: ipi_envs_rl-0.2.2.zip, ipi-attacker-data.zip (or its folder), and a keys file with
 # OPENAI_API_KEY and ANTHROPIC_API_KEY.
 #
 # Usage, as root or a user with passwordless sudo, inside the pod (in tmux: the smoke runs for a while):
-#   bash setup_pod.sh --zip ipi_envs_rl-0.2.1.zip --data ipi-attacker-data.zip --keys keys.env
+#   bash setup_pod.sh --zip ipi_envs_rl-0.2.2.zip --data ipi-attacker-data.zip --keys keys.env
 #   bash setup_pod.sh ... --smoke rollout    # paid: one rollout, no training (8 episodes)
 #   bash setup_pod.sh ... --smoke train      # paid: three GRPO steps (24 episodes)
 # Add --small on a GPU under 80 GB: Qwen3-1.7B with thinking off instead of Qwen3-4B-Instruct-2507.
 set -euo pipefail
 
-ZIP_SHA=a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839
+ZIP_SHA=2f7a02adc40975e7cf3b31f46289eab0abc51d6afcaee8bcccbc673c4310e8d6
 MILES_COMMIT=b55c2a533f
 GYM_REPO=https://github.com/Repello-AI/Gym.git
 GYM_REF=feat/ipi-attacker-own-envs
@@ -69,7 +69,7 @@ if [ "$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | cut
 fi
 $SUDO test -d /root/miles && "$PY" -c "import miles, sglang, megatron.core" 2>/dev/null \
     || die "$PY cannot import miles, sglang and megatron: start the pod from radixark/miles:dev-202611181218, as root"
-[ "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZIP_SHA" ] || die "$ZIP is not ipi_envs_rl 0.2.1 (sha mismatch)"
+[ "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZIP_SHA" ] || die "$ZIP is not ipi_envs_rl 0.2.2 (sha mismatch)"
 for name in OPENAI_API_KEY ANTHROPIC_API_KEY; do
     grep -q "^${name}=." "$KEYS" || die "$KEYS has no $name"
 done
@@ -91,7 +91,7 @@ step "Gym checkout at $GYM_REF"
 if [ ! -d "$GYM/.git" ]; then git clone -q -b "$GYM_REF" "$GYM_REPO" "$GYM"; else git -C "$GYM" pull -q --ff-only; fi
 echo "Gym commit: $(git -C "$GYM" rev-parse --short HEAD)"
 mkdir -p "$GYM/resources_servers/ipi_attacker/vendor"
-cp "$ZIP" "$GYM/resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.1.zip"
+cp "$ZIP" "$GYM/resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.2.zip"
 (cd "$GYM" && { [ -d .venv ] || uv venv -q --python 3.13; } && uv sync -q)
 install -m 600 "$KEYS" "$WORK/keys.env"
 sed "s#^ipi_attacker_api_key_file:.*#ipi_attacker_api_key_file: $WORK/keys.env#" \

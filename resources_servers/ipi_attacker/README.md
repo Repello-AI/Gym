@@ -23,9 +23,9 @@ never a real 0. Leading `<think>` blocks are removed from the policy's text firs
 
 ## Dependencies and keys
 
-The scoring code is the `ipi_envs_rl` package, delivered separately as `ipi_envs_rl-0.2.1.zip`. Put it at
-`vendor/ipi_envs_rl-0.2.1.zip` in this folder (git-ignored) before `uv sync`. `uv.lock` pins the file's sha256:
-`a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839` (check it with `shasum -a 256`).
+The scoring code is the `ipi_envs_rl` package, delivered separately as `ipi_envs_rl-0.2.2.zip`. Put it at
+`vendor/ipi_envs_rl-0.2.2.zip` in this folder (git-ignored) before `uv sync`. `uv.lock` pins the file's sha256:
+`2f7a02adc40975e7cf3b31f46289eab0abc51d6afcaee8bcccbc673c4310e8d6` (check it with `shasum -a 256`).
 
 The defender and judges call the OpenAI and Anthropic APIs: set `ipi_attacker_api_key_file` in `env.yaml` to an env file with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
 `defender_thinking` turns the defender's reasoning on (default `false`, as in the evaluations); both modes work for the

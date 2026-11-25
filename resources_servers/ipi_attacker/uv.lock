@@ -1061,7 +1061,7 @@ telemetry = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ipi-envs-rl", path = "vendor/ipi_envs_rl-0.2.1.zip" },
+    { name = "ipi-envs-rl", path = "vendor/ipi_envs_rl-0.2.2.zip" },
     { name = "nemo-gym", extras = ["dev"], editable = "../../" },
     { name = "nemo-gym", extras = ["telemetry"], marker = "extra == 'telemetry'", editable = "../../" },
 ]
@@ -1312,15 +1312,15 @@ dependencies = [
 
 [[package]]
 name = "ipi-envs-rl"
-version = "0.2.1"
-source = { path = "vendor/ipi_envs_rl-0.2.1.zip" }
+version = "0.2.2"
+source = { path = "vendor/ipi_envs_rl-0.2.2.zip" }
 dependencies = [
     { name = "anthropic" },
     { name = "ipi-arena-bench" },
     { name = "openai" },
     { name = "pyyaml" },
 ]
-sdist = { hash = "sha256:a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839" }
+sdist = { hash = "sha256:2f7a02adc40975e7cf3b31f46289eab0abc51d6afcaee8bcccbc673c4310e8d6" }
 
 [package.metadata]
 requires-dist = [

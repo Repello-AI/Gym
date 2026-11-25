@@ -4,7 +4,7 @@ Single-turn indirect prompt injection attacker. The policy sees the attacker's g
 will have, and writes the text for one untrusted record. A frozen defender (`gpt-6-luna` by default) then does its
 tool-use task over that record; the reward says whether it took the unwanted action and hid it.
 See `resources_servers/ipi_attacker/README.md` for the reward, the keys it needs and where to put the delivered
-`ipi_envs_rl-0.2.1.zip`.
+`ipi_envs_rl-0.2.2.zip`.
 
 - Integration profile: `custom-gym-verifier`
 - Agent: `simple_agent` (one policy call, no tools)
