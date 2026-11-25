@@ -11,7 +11,7 @@
 # Upload to the pod first: ipi_envs_rl-0.2.1.zip, ipi-attacker-data.zip (or its folder), and a keys file with
 # OPENAI_API_KEY and ANTHROPIC_API_KEY.
 #
-# Usage, as root inside the pod (in tmux: the smoke runs for a while):
+# Usage, as root or a user with passwordless sudo, inside the pod (in tmux: the smoke runs for a while):
 #   bash setup_pod.sh --zip ipi_envs_rl-0.2.1.zip --data ipi-attacker-data.zip --keys keys.env
 #   bash setup_pod.sh ... --smoke rollout    # paid: one rollout, no training (8 episodes)
 #   bash setup_pod.sh ... --smoke train      # paid: three GRPO steps (24 episodes)
@@ -44,9 +44,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ZIP" ] && [ -n "$DATA" ] && [ -n "$KEYS" ] || { sed -n '4,18p' "$0"; exit 2; }
 case "$SMOKE" in ""|rollout|train) ;; *) echo "--smoke takes rollout or train" >&2; exit 2 ;; esac
-# A pod's /workspace is usually its persistent volume; the image's /root is not.
+# A pod's volume is usually /workspace or ~/workspace; else the home folder.
 if [ -z "$WORK" ]; then
-    if [ -d /workspace ] && [ -w /workspace ]; then WORK=/workspace/ipi; else WORK=/root/ipi; fi
+    for volume in /workspace "$HOME/workspace"; do
+        if [ -d "$volume" ] && [ -w "$volume" ]; then WORK="$volume/ipi"; break; fi
+    done
+    WORK=${WORK:-$HOME/ipi}
 fi
 GYM="$WORK/Gym"
 LOGS="$WORK/logs"
@@ -57,10 +60,11 @@ step() { echo; echo "=== $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 step "Preflight"
-[ "$(id -u)" = 0 ] || die "run as root"
+if [ "$(id -u)" = 0 ]; then SUDO=""; elif sudo -n true 2>/dev/null; then SUDO=sudo; else die "needs root or passwordless sudo"; fi
+echo "user: $(id -un), home: $HOME"
 nvidia-smi -L || die "no GPU visible"
-[ -d /root/miles ] && "$PY" -c "import miles, sglang, megatron.core" 2>/dev/null \
-    || die "this pod is not running Miles' image; start it from radixark/miles:dev-202611181218"
+$SUDO test -d /root/miles && "$PY" -c "import miles, sglang, megatron.core" 2>/dev/null \
+    || die "$PY cannot import miles, sglang and megatron: start the pod from radixark/miles:dev-202611181218, as root"
 [ "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZIP_SHA" ] || die "$ZIP is not ipi_envs_rl 0.2.1 (sha mismatch)"
 for name in OPENAI_API_KEY ANTHROPIC_API_KEY; do
     grep -q "^${name}=." "$KEYS" || die "$KEYS has no $name"
@@ -75,7 +79,7 @@ echo "workdir: $WORK"
 step "System packages and uv"
 missing=""
 for tool in git curl tmux unzip; do command -v "$tool" >/dev/null || missing="$missing $tool"; done
-if [ -n "$missing" ]; then apt-get update -qq && apt-get install -y -qq $missing; fi
+if [ -n "$missing" ]; then $SUDO apt-get update -qq && $SUDO apt-get install -y -qq $missing; fi
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 uv python install 3.13
 
@@ -99,17 +103,17 @@ fi
 wc -l "$WORK/ipi-attacker-data/train.jsonl" "$WORK/ipi-attacker-data/validation.jsonl"
 
 step "Hugging Face cache on the work volume"
-mkdir -p "$WORK/hf-cache" /root/.cache
-if [ ! -L /root/.cache/huggingface ]; then
-    [ -d /root/.cache/huggingface ] && cp -rn /root/.cache/huggingface/. "$WORK/hf-cache/" && rm -rf /root/.cache/huggingface
-    ln -s "$WORK/hf-cache" /root/.cache/huggingface
+mkdir -p "$WORK/hf-cache" "$HOME/.cache"
+if [ ! -L "$HOME/.cache/huggingface" ]; then
+    [ -d "$HOME/.cache/huggingface" ] && cp -rn "$HOME/.cache/huggingface/." "$WORK/hf-cache/" && rm -rf "$HOME/.cache/huggingface"
+    ln -s "$WORK/hf-cache" "$HOME/.cache/huggingface"
 fi
 
 step "Miles at $MILES_COMMIT"
-if [ "$(git -C /root/miles rev-parse --short=10 HEAD)" != "$MILES_COMMIT" ]; then
-    git -C /root/miles fetch -q origin
-    git -C /root/miles checkout -q "$MILES_COMMIT"
-    (cd /root/miles && "$PY" -m pip install -q -e . --no-deps)
+if [ "$($SUDO git -C /root/miles rev-parse --short=10 HEAD)" != "$MILES_COMMIT" ]; then
+    $SUDO git -C /root/miles fetch -q origin
+    $SUDO git -C /root/miles checkout -q "$MILES_COMMIT"
+    (cd /root/miles && $SUDO "$PY" -m pip install -q -e . --no-deps)
 fi
 "$PY" -c "import miles, typer, httpx, transformers; print('miles', miles.__file__)"
 
