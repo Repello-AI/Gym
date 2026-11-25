@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from nemo_gym.client import ServerClient
@@ -23,6 +26,8 @@ from ..verifier_fixture import create_fixture_server, fixture_clients
 
 
 CASES = Path(__file__).parent / "verifier_cases.jsonl"
+ASYNC_CLIENT = httpx.AsyncClient
+MILES_HOOKS = Path(__file__).resolve().parents[3] / "environments" / "ipi_attacker" / "miles" / "ipi_attacker_miles.py"
 
 
 def full_break_request(**fields) -> IpiAttackerVerifyRequest:
@@ -85,3 +90,124 @@ def test_startup_refuses_a_missing_key_file_or_unqualified_security_reader(tmp_p
         )
         with pytest.raises(ValueError, match=error):
             IpiAttackerResourcesServer(config=config, server_client=MagicMock(spec=ServerClient))
+
+
+@pytest.fixture
+def hooks():
+    spec = importlib.util.spec_from_file_location("ipi_attacker_miles", MILES_HOOKS)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def miles_row():
+    """A fixture row as Miles hands it to the agent function: the prompt, and the row's other fields as metadata."""
+    request = json.loads(CASES.read_text().splitlines()[0])["request"]
+    metadata = {key: value for key, value in request.items() if key not in ("responses_create_params", "response")}
+    return request["responses_create_params"]["input"], metadata, request["response"]
+
+
+def masked(kind):
+    return {"reward": 0.0, "mask_sample": True, "failure_kind": kind}
+
+
+def run_hook(hooks, monkeypatch, handler):
+    """Run the agent function against a mocked /run; return its result and every request body sent."""
+    bodies = []
+
+    def record(request):
+        bodies.append(json.loads(request.content))
+        return handler(request)
+
+    monkeypatch.setattr(
+        hooks.httpx, "AsyncClient", lambda **kwargs: ASYNC_CLIENT(transport=httpx.MockTransport(record), **kwargs)
+    )
+    monkeypatch.setattr(hooks, "CONNECT_BACKOFF_S", (0.0, 0.0))
+    prompt, metadata, _ = miles_row()
+    return asyncio.run(hooks.run("http://miles/sessions/s1", prompt, {}, metadata)), bodies
+
+
+def test_run_body_sends_the_prompt_and_is_a_valid_verify_request(hooks) -> None:
+    prompt, metadata, response = miles_row()
+    body = hooks.run_body(
+        "http://miles/sessions/s1", prompt, {"temperature": 0.8, "top_p": None, "max_tokens": 512}, metadata
+    )
+    assert body["responses_create_params"] == {"input": prompt, "temperature": 0.8, "max_output_tokens": 512}
+    assert body["policy_base_url"] == "http://miles/sessions/s1/v1"
+    request = IpiAttackerVerifyRequest.model_validate(body | {"response": response})
+    assert (request.environment, request.env_id) == (metadata["environment"], metadata["env_id"])
+    assert hooks.run_body("http://miles", "write it", {}, {})["responses_create_params"]["input"] == [
+        {"role": "user", "content": "write it"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "status, payload, expected",
+    [
+        (200, {"reward": 0.75, "mask_sample": False}, {"reward": 0.75, "mask_sample": False, "failure_kind": None}),
+        (
+            200,
+            {"reward": 0.0, "mask_sample": True, "failure_kind": "ipi_attacker:concealment_judge_error"},
+            masked("ipi_attacker:concealment_judge_error"),
+        ),
+        (
+            200,
+            {"_ng_failure_class": "agent_run_error", "failure_kind": "model_request_timeout"},
+            masked("model_request_timeout"),
+        ),
+        (400, {"detail": "policy_base_url needs allow_policy_base_url: true"}, masked("ipi_attacker:run_http_400")),
+    ],
+)
+def test_run_returns_the_reward_or_a_mask(hooks, monkeypatch, status, payload, expected) -> None:
+    result, bodies = run_hook(hooks, monkeypatch, lambda request: httpx.Response(status, json=payload))
+    assert result == expected
+    assert len(bodies) == 1 and bodies[0]["responses_create_params"]["input"] == miles_row()[0]
+
+
+def test_run_resends_only_a_request_that_never_left(hooks, monkeypatch) -> None:
+    attempts = iter([httpx.ConnectError("refused"), httpx.Response(200, json={"reward": 1.0})])
+
+    def connect_then_answer(request):
+        outcome = next(attempts)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    result, bodies = run_hook(hooks, monkeypatch, connect_then_answer)
+    assert (result["reward"], len(bodies)) == (1.0, 2)
+
+    def read_error(request):
+        raise httpx.ReadError("connection reset")
+
+    result, bodies = run_hook(hooks, monkeypatch, read_error)
+    assert (result, len(bodies)) == (masked("ipi_attacker:run_failed"), 1)
+
+
+def test_run_masks_a_run_past_its_timeout(hooks, monkeypatch) -> None:
+    monkeypatch.setenv("NEMO_GYM_RUN_TIMEOUT", "0.05")
+
+    async def slow(request):
+        await asyncio.sleep(1)
+        return httpx.Response(200, json={"reward": 1.0})
+
+    result, _ = run_hook(hooks, monkeypatch, slow)
+    assert result == masked("ipi_attacker:run_failed")
+
+
+def sample(reward, masked=False):
+    return SimpleNamespace(reward=reward, metadata={"reward": reward, "mask_sample": masked}, remove_sample=False)
+
+
+def test_masked_samples_leave_the_loss_and_take_their_siblings_mean(hooks) -> None:
+    group = [sample(1.0), sample(0.5), sample(0.0, masked=True), [sample(0.0, masked=True), sample(0.0, masked=True)]]
+    all_masked = [sample(0.0, masked=True), sample(0.0, masked=True)]
+    hooks.drop_masked(None, [group, all_masked])
+    flat = [*group[:3], *group[3]]
+    assert [s.reward for s in flat] == [1.0, 0.5, 0.75, 0.75, 0.75]
+    assert [s.remove_sample for s in flat] == [False, False, True, True, True]
+    assert [(s.reward, s.remove_sample) for s in all_masked] == [(0.0, True), (0.0, True)]
+
+
+def test_reward_func_reads_the_run_reward(hooks) -> None:
+    assert asyncio.run(hooks.reward_func(None, sample(0.5))) == 0.5
+    assert asyncio.run(hooks.reward_func(None, [sample(0.5), sample(1.0)])) == [0.5, 1.0]
