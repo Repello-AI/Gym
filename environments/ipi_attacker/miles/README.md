@@ -11,6 +11,7 @@ imports hooks by dotted path, so this folder only has to be on `PYTHONPATH`.
 | `run.py` | A Miles launcher sized for a smoke run on one 80 GB GPU, with a data preflight |
 | `env.yaml.example` | The Gym `env.yaml` for training behind Miles |
 | `api_scan.py` | Sends a few rows through the running Gym servers with an API model as the attacker (paid) |
+| `setup_pod.sh` | Pre-handoff test: sets up Gym and Miles in one GPU pod started from Miles' image, and runs the smoke |
 
 ## What the hooks do
 
@@ -29,12 +30,23 @@ imports hooks by dotted path, so this folder only has to be on `PYTHONPATH`.
   rollouts in a row, it raises, since a dead key, judge or Gym server would otherwise train on nothing.
 - `normalize_unmasked` computes the GRPO advantages; Miles calls a reward post-process in place of its own
   normalization. That normalization counts every sample in a group's std, even with `remove_sample`, so masked
-  samples would scale the others' advantages with the failure rate. This hook takes each group's mean and std over unmasked rollouts only
-  (as NeMo RL's `valid_mask` does), gives masked samples 0, counts a rollout's segments once, and honours
-  `--disable-grpo-std-normalization`. Miles' `--length-penalty-coeff` does not apply through it.
+  samples would scale the others' advantages with the failure rate. This hook takes each group's mean and std over
+  unmasked rollouts only (as NeMo RL's `valid_mask` does), gives masked samples 0, counts a rollout's segments once,
+  and honours `--disable-grpo-std-normalization`. Miles' `--length-penalty-coeff` does not apply through it.
 
-Tested against Miles `b55c2a533f`. The agent-function signature (`base_url, prompt, request_kwargs, metadata`) is
-Miles' internal contract, so pin the Miles commit.
+Written against Miles `b55c2a533f`. The hook signatures are Miles' internal contract, so pin the Miles commit.
+
+## What the GPU machine needs
+
+These are not in git:
+
+- `ipi_envs_rl-0.2.1.zip`, sha256 `a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839`.
+- `ipi-attacker-data.zip` (or its folder) with `train.jsonl` and `validation.jsonl`.
+- A keys file with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` (plus `SARVAM_API_KEY` or `OPENROUTER_API_KEY` for
+  those defenders).
+
+The machine also needs outbound access to GitHub, PyPI, Hugging Face (the model downloads on first use) and the
+OpenAI and Anthropic APIs.
 
 ## Setup on one GPU box
 
@@ -84,17 +96,17 @@ so both reach each other on localhost.
    ```bash
    docker run --rm --gpus all --ipc=host --shm-size=32g --ulimit memlock=-1 --ulimit stack=67108864 \
        --network=host -v /path/to/Gym:/root/Gym -v /path/to/ipi-attacker-data:/root/ipi-attacker-data \
-       -it radixark/miles:latest /bin/bash
-   # inside: check out Miles b55c2a533f in the image's Miles repo (python -c 'import miles; print(miles.__file__)')
+       -it radixark/miles:dev-202611181218 /bin/bash
+   # inside: cd /root/miles && git fetch origin && git checkout b55c2a533f && pip install -e . --no-deps
    ```
 
 ## Smoke run (Qwen3-4B-Instruct-2507, one H100 80 GB)
 
-Inside the container, from `/root/Gym/environments/ipi_attacker/miles`. `run.py` first drops blocked and `audit_only`
-rows and checks every prompt fits `max_seq_len - rollout_max_response_len` with the model's chat template; then it
-converts the checkpoint on first run (`--skip-prepare` to skip) and launches Miles. Like Miles' example launcher, it
-first kills every process matching `sglang`, `train.py` or `MegatronTrain`: run it only inside the container, never
-on a shared host.
+Inside the container, from `/root/Gym/environments/ipi_attacker/miles`. `run.py` first drops blocked and
+`audit_only` rows and checks every prompt fits `max_seq_len - rollout_max_response_len` with the model's chat
+template; then it converts the checkpoint on first run (`--skip-prepare` to skip) and launches Miles. Like Miles'
+example launcher, it first kills every process matching `sglang`, `train.py` or `MegatronTrain`: run it only inside
+the container, never on a shared host.
 
 1. One rollout, no training (8 episodes, paid):
 

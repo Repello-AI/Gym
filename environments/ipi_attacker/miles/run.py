@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Miles launcher for the ipi_attacker environment, sized for a smoke run on one 80 GB GPU.
 
-Runs inside Miles' docker image (``--network host``), with the Gym servers already started on the host.
+Runs inside Miles' image, with the Gym servers already started on the same machine (the host of a
+``--network host`` container, or the same pod).
 Defaults: Qwen3-4B-Instruct-2507, 3 GRPO steps of 2 prompts x 4 samples.
 
 Usage:
