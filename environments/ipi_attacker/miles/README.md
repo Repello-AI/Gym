@@ -130,6 +130,9 @@ Out of memory, or a GPU under 80 GB: `--megatron-model-type qwen3-1.7B --hf-chec
 Qwen3-1.7B --ref-load /root/Qwen3-1.7B_torch_dist --apply-chat-template-kwargs '{"enable_thinking": false}'` (Qwen3-1.7B
 thinks by default, which would spend the reply budget).
 
+On a GPU older than Hopper (an A100), add `--attention-backend fused`: Megatron's flash backend runs Hopper-only
+kernels and fails in the first backward pass.
+
 ## Flags for another launcher
 
 Put this folder on `PYTHONPATH` (next to Megatron and Miles), set `NEMO_GYM_URL` (default `http://localhost:12000`),

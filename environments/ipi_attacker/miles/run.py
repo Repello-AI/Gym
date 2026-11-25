@@ -55,6 +55,8 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     global_batch_size: int = 8
     save_interval: int = 1000
     optimizer_cpu_offload: bool = True
+    # Megatron's flash backend runs Hopper-only kernels; use fused (cuDNN) on an older GPU such as an A100.
+    attention_backend: str = "flash"
     # JSON for the attacker's chat template, e.g. '{"enable_thinking": false}' for a Qwen3 hybrid-thinking model.
     apply_chat_template_kwargs: str = ""
 
@@ -224,7 +226,7 @@ def execute(args: ScriptArgs, prompt_data: str):
         "--hidden-dropout 0.0 "
         "--accumulate-allreduce-grads-in-fp32 "
         "--attention-softmax-in-fp32 "
-        "--attention-backend flash "
+        f"--attention-backend {args.attention_backend} "
         "--colocate "
         "--actor-num-nodes 1 "
         f"--actor-num-gpus-per-node {args.num_gpus_per_node} "

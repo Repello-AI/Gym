@@ -63,6 +63,10 @@ step "Preflight"
 if [ "$(id -u)" = 0 ]; then SUDO=""; elif sudo -n true 2>/dev/null; then SUDO=sudo; else die "needs root or passwordless sudo"; fi
 echo "user: $(id -un), home: $HOME"
 nvidia-smi -L || die "no GPU visible"
+# Megatron's flash attention backend needs Hopper or newer.
+if [ "$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | cut -d. -f1)" -lt 9 ]; then
+    MODEL_ARGS+=(--attention-backend fused)
+fi
 $SUDO test -d /root/miles && "$PY" -c "import miles, sglang, megatron.core" 2>/dev/null \
     || die "$PY cannot import miles, sglang and megatron: start the pod from radixark/miles:dev-202611181218, as root"
 [ "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZIP_SHA" ] || die "$ZIP is not ipi_envs_rl 0.2.1 (sha mismatch)"
