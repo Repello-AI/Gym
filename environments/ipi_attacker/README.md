@@ -14,8 +14,8 @@ See `resources_servers/ipi_attacker/README.md` for the reward, the keys it needs
 
 `data/example.jsonl` holds 5 rows, one per world, from the evaluation split. The train and validation sets are
 delivered separately; add them as datasets with their `jsonl_fpath` when you have them. Each row is the environment's
-training row: `responses_create_params` (the attacker's prompt), `env_id`, `split` and `environment` (read by `verify`,
-never shown to the policy).
+training row: `responses_create_params` (the attacker's prompt, built with the v2 attacker system prompt), `env_id`,
+`split` and `environment` (read by `verify`, never shown to the policy).
 
 ## Training with Miles
 
