@@ -39,8 +39,8 @@ so both reach each other on localhost.
    git clone -b feat/ipi-attacker-own-envs https://github.com/Repello-AI/Gym.git && cd Gym
    uv venv --python 3.13 && source .venv/bin/activate && uv sync
    mkdir -p resources_servers/ipi_attacker/vendor
-   cp /path/to/ipi_envs_rl-0.2.0.zip resources_servers/ipi_attacker/vendor/
-   shasum -a 256 resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.0.zip   # must match the sha in uv.lock
+   cp /path/to/ipi_envs_rl-0.2.1.zip resources_servers/ipi_attacker/vendor/
+   shasum -a 256 resources_servers/ipi_attacker/vendor/ipi_envs_rl-0.2.1.zip   # must match the sha in uv.lock
    cp environments/ipi_attacker/miles/env.yaml.example env.yaml                 # set ipi_attacker_api_key_file
    ```
 

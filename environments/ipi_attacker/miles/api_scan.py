@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 import httpx
-from ipi_attacker_miles import run_body
+from ipi_attacker_miles import DEFAULT_GYM_URL, run_body
 
 
 MIN_INPUT_TOKENS = 1000
@@ -34,7 +34,8 @@ async def scan_row(client: httpx.AsyncClient, url: str, row: dict, policy_base_u
     body = run_body(policy_base_url, row["prompt"], {}, row["metadata"]) | {"policy_api_key": key}
     response = await client.post(url, json=body)
     if response.status_code != 200:
-        print(f"{row['metadata']['env_id']}: HTTP {response.status_code} {response.text[:300]}")
+        # A 422 echoes the request body, key included.
+        print(f"{row['metadata']['env_id']}: HTTP {response.status_code} {response.text[:300].replace(key, '***')}")
         return False
     result = response.json()
     tokens = ((result.get("response") or {}).get("usage") or {}).get("input_tokens", 0)
@@ -56,10 +57,12 @@ async def main() -> None:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--api-key-file", required=True)
     parser.add_argument("--policy-base-url", default="https://api.openai.com", help="without /v1")
-    parser.add_argument("--gym-url", default=os.getenv("NEMO_GYM_URL", "http://localhost:12000"))
+    parser.add_argument("--gym-url", default=os.getenv("NEMO_GYM_URL", DEFAULT_GYM_URL))
     args = parser.parse_args()
 
     rows = [json.loads(line) for line in Path(args.data).read_text().splitlines() if line.strip()][: args.limit]
+    if not rows:
+        raise SystemExit(f"no rows to scan in {args.data} with --limit {args.limit}")
     key = api_key(args.api_key_file)
     async with httpx.AsyncClient(timeout=httpx.Timeout(3600.0, connect=30.0)) as client:
         results = await asyncio.gather(

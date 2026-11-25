@@ -175,6 +175,9 @@ def test_run_body_sends_the_prompt_and_is_a_valid_verify_request(hooks) -> None:
             masked("model_request_timeout"),
         ),
         (400, {"detail": "policy_base_url needs allow_policy_base_url: true"}, masked("ipi_attacker:run_http_400")),
+        (200, {"reward": None}, masked("ipi_attacker:bad_response")),
+        (200, {"reward": "0.5"}, masked("ipi_attacker:bad_response")),
+        (200, [0.5], masked("ipi_attacker:bad_response")),
     ],
 )
 def test_run_returns_the_reward_or_a_mask(hooks, monkeypatch, status, payload, expected) -> None:
@@ -218,12 +221,19 @@ def sample(reward, masked=False):
 
 
 def test_masked_samples_leave_the_loss_and_take_their_siblings_mean(hooks) -> None:
-    group = [sample(1.0), sample(0.5), sample(0.0, masked=True), [sample(0.0, masked=True), sample(0.0, masked=True)]]
+    crashed = SimpleNamespace(reward=0.0, metadata={}, remove_sample=False)  # the agent function raised: no reward
+    group = [
+        sample(1.0),
+        sample(0.5),
+        sample(0.0, masked=True),
+        [sample(0.0, masked=True), sample(0.0, masked=True)],
+        crashed,
+    ]
     all_masked = [sample(0.0, masked=True), sample(0.0, masked=True)]
     hooks.drop_masked(None, [group, all_masked])
-    flat = [*group[:3], *group[3]]
-    assert [s.reward for s in flat] == [1.0, 0.5, 0.75, 0.75, 0.75]
-    assert [s.remove_sample for s in flat] == [False, False, True, True, True]
+    flat = [*group[:3], *group[3], crashed]
+    assert [s.reward for s in flat] == [1.0, 0.5, 0.75, 0.75, 0.75, 0.75]
+    assert [s.remove_sample for s in flat] == [False, False, True, True, True, True]
     assert [(s.reward, s.remove_sample) for s in all_masked] == [(0.0, True), (0.0, True)]
 
 

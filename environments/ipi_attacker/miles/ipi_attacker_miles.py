@@ -16,6 +16,7 @@ Env vars:
 
 import asyncio
 import logging
+import math
 import os
 import random
 from typing import Any
@@ -25,6 +26,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_GYM_URL = "http://localhost:12000"
+DEFAULT_RUN_TIMEOUT_S = "3600"
 CONNECT_ATTEMPTS = 3
 CONNECT_BACKOFF_S = (1.0, 5.0)
 
@@ -71,10 +74,10 @@ async def run(
     Never raises: Miles swallows an agent-function exception and trains the sample as reward 0, so every failure
     comes back masked instead.
     """
-    url = f"{os.getenv('NEMO_GYM_URL', 'http://localhost:12000').rstrip('/')}/run"
-    timeout_s = float(os.getenv("NEMO_GYM_RUN_TIMEOUT", "3600"))
-    body = run_body(base_url, prompt, request_kwargs or {}, metadata or {})
     try:
+        url = f"{os.getenv('NEMO_GYM_URL', DEFAULT_GYM_URL).rstrip('/')}/run"
+        timeout_s = float(os.getenv("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S))
+        body = run_body(base_url, prompt, request_kwargs or {}, metadata or {})
         response = await asyncio.wait_for(_post_run(url, body), timeout=timeout_s)
     except httpx.HTTPStatusError as error:
         status = error.response.status_code
@@ -83,11 +86,16 @@ async def run(
     except Exception as error:
         logger.warning(f"ipi_attacker /run failed: {error!r}")
         return _masked("ipi_attacker:run_failed")
+    if not isinstance(response, dict):
+        return _masked("ipi_attacker:bad_response")
     # simple_agent reports a policy timeout as a 200 failure row with no reward.
     if "reward" not in response or response.get("_ng_failure_class"):
         return _masked(response.get("failure_kind") or "ipi_attacker:run_failed")
+    reward = response["reward"]
+    if isinstance(reward, bool) or not isinstance(reward, (int, float)) or not math.isfinite(reward):
+        return _masked("ipi_attacker:bad_response")
     return {
-        "reward": float(response["reward"]),
+        "reward": float(reward),
         "mask_sample": bool(response.get("mask_sample")),
         "failure_kind": response.get("failure_kind"),
     }
@@ -101,7 +109,9 @@ async def reward_func(args, samples, **kwargs):
 
 
 def _is_masked(rollout: list) -> bool:
-    return bool((rollout[0].metadata or {}).get("mask_sample"))
+    # No reward means ``run`` never returned (its process died), so the reward is not a real score.
+    metadata = rollout[0].metadata or {}
+    return bool(metadata.get("mask_sample")) or "reward" not in metadata
 
 
 def drop_masked(args, data: list) -> None:

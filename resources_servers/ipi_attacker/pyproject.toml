@@ -19,7 +19,7 @@ exclude-dependencies = ["fasttext-wheel", "alembic", "blinker", "flask", "flask-
 "nemo-lens" = { git = "https://github.com/NVIDIA-NeMo/Lens.git", rev = "4d045c03186b90afdc815db46b671f6a21bc7e98" }
 "nemo-gym" = { path = "../..", editable = true }
 # Proprietary; the zip is delivered separately (see README.md).
-"ipi_envs_rl" = { path = "vendor/ipi_envs_rl-0.2.0.zip" }
+"ipi_envs_rl" = { path = "vendor/ipi_envs_rl-0.2.1.zip" }
 
 [project.optional-dependencies]
 telemetry = ["nemo-gym[telemetry]"]

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 import typer
+from ipi_attacker_miles import DEFAULT_GYM_URL, DEFAULT_RUN_TIMEOUT_S
 from miles.utils.external_utils import command_utils
 
 
@@ -53,8 +54,8 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     save_interval: int = 1000
     optimizer_cpu_offload: bool = True
 
-    nemo_gym_url: str = os.environ.get("NEMO_GYM_URL", "http://localhost:12000")
-    nemo_gym_run_timeout: str = os.environ.get("NEMO_GYM_RUN_TIMEOUT", "3600")
+    nemo_gym_url: str = os.environ.get("NEMO_GYM_URL", DEFAULT_GYM_URL)
+    nemo_gym_run_timeout: str = os.environ.get("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S)
     session_server_external_host: str = ""
 
 
@@ -95,6 +96,8 @@ def preflight(args: ScriptArgs) -> str:
         if not row["metadata"]["qualification"]["blocked"] and not row["metadata"].get("audit_only")
     ]
     budget = args.max_seq_len - args.rollout_max_response_len
+    if not kept:
+        raise SystemExit(f"no trainable rows in {args.prompt_data}")
     lengths = [len(tokenizer.apply_chat_template(row["prompt"], add_generation_prompt=True)) for row in kept]
     too_long = [row["metadata"]["env_id"] for row, length in zip(kept, lengths) if length > budget]
     if too_long:
