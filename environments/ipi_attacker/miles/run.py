@@ -62,8 +62,8 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     nemo_gym_run_timeout: str = os.environ.get("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S)
     mask_breaker_rate: str = os.environ.get("IPI_MASK_BREAKER_RATE", "0.5")
     mask_breaker_rollouts: str = os.environ.get("IPI_MASK_BREAKER_ROLLOUTS", "3")
-    # Loopback keeps the session server off the network; bind wider only when Gym runs on another host.
-    session_server_ip: str = "127.0.0.1"
+    # Empty binds Miles' default, the address Ray placed the server on; Miles checks readiness there, so not loopback.
+    session_server_ip: str = ""
     session_server_external_host: str = ""
 
 
@@ -151,6 +151,7 @@ def execute(args: ScriptArgs, prompt_data: str):
         if args.apply_chat_template_kwargs
         else ""
     )
+    session_ip_arg = f"--session-server-ip {args.session_server_ip} " if args.session_server_ip else ""
     rollout_args = (
         f"--prompt-data {prompt_data} "
         f"{template_args}"
@@ -211,7 +212,7 @@ def execute(args: ScriptArgs, prompt_data: str):
         "--rollout-sample-filter-path ipi_attacker_miles.drop_masked "
         "--dynamic-sampling-filter-path miles.rollout.filter_hub.common_filters.apply_aborted_filter "
         "--use-session-server "
-        f"--session-server-ip {args.session_server_ip} "
+        f"{session_ip_arg}"
         "--session-server-port 30000 "
         "--session-server-workers 32 "
         f"{external_host_arg}"

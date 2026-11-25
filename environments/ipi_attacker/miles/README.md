@@ -145,13 +145,14 @@ environment of Miles' rollout processes (the Ray runtime env), and pass:
 --rollout-sample-filter-path ipi_attacker_miles.drop_masked
 --custom-reward-post-process-path ipi_attacker_miles.normalize_unmasked   # replaces Miles' GRPO normalization
 --dynamic-sampling-filter-path miles.rollout.filter_hub.common_filters.apply_aborted_filter
---use-session-server --session-server-ip 127.0.0.1
+--use-session-server
 --tito-model qwen3                   # the policy model's TITO family
 ```
 
-Gym and the session server bind to loopback, because both start paid episodes without authentication and
-`allow_policy_base_url` lets a caller pick the URL the agent posts to. When Gym runs on another host than the
-trainer, bind the session server wider (`--session-server-ip 0.0.0.0`, with `--session-server-external-host <IP>`
+Gym binds to loopback, because it starts paid episodes without authentication and `allow_policy_base_url` lets a
+caller pick the URL the agent posts to. The session server keeps Miles' default bind, the address Ray placed it
+on: Miles checks its readiness there, so `--session-server-ip 127.0.0.1` never comes up. It only drives the
+trainer's own SGLang. When Gym runs on another host than the trainer, bind the session server wider (`--session-server-ip 0.0.0.0`, with `--session-server-external-host <IP>`
 when the Gym host cannot resolve the trainer's hostname) and Gym (`default_host` in `env.yaml`), and firewall both
 ports to the two hosts.
 
