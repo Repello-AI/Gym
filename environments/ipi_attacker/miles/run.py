@@ -55,7 +55,7 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     global_batch_size: int = 8
     save_interval: int = 1000
     optimizer_cpu_offload: bool = True
-    # Megatron's flash backend runs Hopper-only kernels; use fused (cuDNN) on an older GPU such as an A100.
+    # Megatron's flash backend runs Hopper-only kernels; use unfused on an older GPU such as an A100.
     attention_backend: str = "flash"
     # JSON for the attacker's chat template, e.g. '{"enable_thinking": false}' for a Qwen3 hybrid-thinking model.
     apply_chat_template_kwargs: str = ""

@@ -130,8 +130,9 @@ Out of memory, or a GPU under 80 GB: `--megatron-model-type qwen3-1.7B --hf-chec
 Qwen3-1.7B --ref-load /root/Qwen3-1.7B_torch_dist --apply-chat-template-kwargs '{"enable_thinking": false}'` (Qwen3-1.7B
 thinks by default, which would spend the reply budget).
 
-On a GPU older than Hopper (an A100), add `--attention-backend fused`: Megatron's flash backend runs Hopper-only
-kernels and fails in the first backward pass.
+On a GPU older than Hopper (an A100), add `--attention-backend unfused`. There the flash backend's kernels fail in
+the first backward pass, `auto` picks the same FlashAttention 4 kernels, and `fused` (cuDNN) rejects packed
+sequences. Unfused attention peaks near 5 GiB per layer for a 7k-token sequence.
 
 ## Flags for another launcher
 

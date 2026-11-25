@@ -63,9 +63,9 @@ step "Preflight"
 if [ "$(id -u)" = 0 ]; then SUDO=""; elif sudo -n true 2>/dev/null; then SUDO=sudo; else die "needs root or passwordless sudo"; fi
 echo "user: $(id -un), home: $HOME"
 nvidia-smi -L || die "no GPU visible"
-# Megatron's flash attention backend needs Hopper or newer.
+# Before Hopper, Transformer Engine's cuDNN kernel rejects packed sequences and FlashAttention 4 fails backward.
 if [ "$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | cut -d. -f1)" -lt 9 ]; then
-    MODEL_ARGS+=(--attention-backend fused)
+    MODEL_ARGS+=(--attention-backend unfused)
 fi
 $SUDO test -d /root/miles && "$PY" -c "import miles, sglang, megatron.core" 2>/dev/null \
     || die "$PY cannot import miles, sglang and megatron: start the pod from radixark/miles:dev-202611181218, as root"
