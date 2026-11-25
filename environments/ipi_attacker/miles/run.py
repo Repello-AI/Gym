@@ -15,6 +15,7 @@ Usage:
 
 import json
 import os
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -54,6 +55,8 @@ class ScriptArgs(command_utils.ExecuteTrainConfig):
     global_batch_size: int = 8
     save_interval: int = 1000
     optimizer_cpu_offload: bool = True
+    # JSON for the attacker's chat template, e.g. '{"enable_thinking": false}' for a Qwen3 hybrid-thinking model.
+    apply_chat_template_kwargs: str = ""
 
     nemo_gym_url: str = os.environ.get("NEMO_GYM_URL", DEFAULT_GYM_URL)
     nemo_gym_run_timeout: str = os.environ.get("NEMO_GYM_RUN_TIMEOUT", DEFAULT_RUN_TIMEOUT_S)
@@ -103,7 +106,19 @@ def preflight(args: ScriptArgs) -> str:
     budget = args.max_seq_len - args.rollout_max_response_len
     if not kept:
         raise SystemExit(f"no trainable rows in {args.prompt_data}")
-    lengths = [len(tokenizer.apply_chat_template(row["prompt"], add_generation_prompt=True)) for row in kept]
+    template_kwargs = json.loads(args.apply_chat_template_kwargs or "{}")
+    # Render to text and count: newer transformers return an encoding dict from apply_chat_template.
+    lengths = [
+        len(
+            tokenizer.encode(
+                tokenizer.apply_chat_template(
+                    row["prompt"], add_generation_prompt=True, tokenize=False, **template_kwargs
+                ),
+                add_special_tokens=False,
+            )
+        )
+        for row in kept
+    ]
     too_long = [row["metadata"]["env_id"] for row, length in zip(kept, lengths) if length > budget]
     if too_long:
         raise SystemExit(f"{len(too_long)} prompts exceed {budget} tokens (raise --max-seq-len): {too_long[:5]}")
@@ -122,8 +137,14 @@ def execute(args: ScriptArgs, prompt_data: str):
         f"--save-interval {args.save_interval} "
     )
 
+    template_args = (
+        f"--apply-chat-template-kwargs {shlex.quote(args.apply_chat_template_kwargs)} "
+        if args.apply_chat_template_kwargs
+        else ""
+    )
     rollout_args = (
         f"--prompt-data {prompt_data} "
+        f"{template_args}"
         "--input-key prompt "
         "--metadata-key metadata "
         "--rollout-shuffle "

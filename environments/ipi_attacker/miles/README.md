@@ -126,8 +126,9 @@ the container, never on a shared host.
    Pass: 3 steps complete, weights pushed to SGLang each step, `rollout/raw_reward` logged, at least one unmasked
    sample per step. `rollout/zero_std` firing is expected when a small attacker never breaks the defender.
 
-Out of memory: `--megatron-model-type qwen3-1.7B --hf-checkpoint Qwen/Qwen3-1.7B --model-name Qwen3-1.7B
---ref-load /root/Qwen3-1.7B_torch_dist`.
+Out of memory, or a GPU under 80 GB: `--megatron-model-type qwen3-1.7B --hf-checkpoint Qwen/Qwen3-1.7B --model-name
+Qwen3-1.7B --ref-load /root/Qwen3-1.7B_torch_dist --apply-chat-template-kwargs '{"enable_thinking": false}'` (Qwen3-1.7B
+thinks by default, which would spend the reply budget).
 
 ## Flags for another launcher
 

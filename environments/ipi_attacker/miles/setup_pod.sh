@@ -15,6 +15,7 @@
 #   bash setup_pod.sh --zip ipi_envs_rl-0.2.1.zip --data ipi-attacker-data.zip --keys keys.env
 #   bash setup_pod.sh ... --smoke rollout    # paid: one rollout, no training (8 episodes)
 #   bash setup_pod.sh ... --smoke train      # paid: three GRPO steps (24 episodes)
+# Add --small on a GPU under 80 GB: Qwen3-1.7B with thinking off instead of Qwen3-4B-Instruct-2507.
 set -euo pipefail
 
 ZIP_SHA=a8f5e8ff51f56abfc0bd7420543c0491225cd637665ad492fe13be84a1792839
@@ -22,8 +23,9 @@ MILES_COMMIT=b55c2a533f
 GYM_REPO=https://github.com/Repello-AI/Gym.git
 GYM_REF=feat/ipi-attacker-own-envs
 MODEL=Qwen3-4B-Instruct-2507
+MODEL_ARGS=()
 
-ZIP="" DATA="" KEYS="" SMOKE="" WORK=""
+ZIP="" DATA="" KEYS="" SMOKE="" WORK="" SMALL_FLAG=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --zip) ZIP=$(realpath "$2"); shift 2 ;;
@@ -32,10 +34,15 @@ while [ $# -gt 0 ]; do
         --smoke) SMOKE="$2"; shift 2 ;;
         --workdir) WORK="$2"; shift 2 ;;
         --gym-ref) GYM_REF="$2"; shift 2 ;;
+        --small)
+            MODEL=Qwen3-1.7B SMALL_FLAG=" --small"
+            MODEL_ARGS=(--megatron-model-type qwen3-1.7B --hf-checkpoint Qwen/Qwen3-1.7B --model-name Qwen3-1.7B
+                --apply-chat-template-kwargs '{"enable_thinking": false}')
+            shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-[ -n "$ZIP" ] && [ -n "$DATA" ] && [ -n "$KEYS" ] || { sed -n '4,17p' "$0"; exit 2; }
+[ -n "$ZIP" ] && [ -n "$DATA" ] && [ -n "$KEYS" ] || { sed -n '4,18p' "$0"; exit 2; }
 case "$SMOKE" in ""|rollout|train) ;; *) echo "--smoke takes rollout or train" >&2; exit 2 ;; esac
 # A pod's /workspace is usually its persistent volume; the image's /root is not.
 if [ -z "$WORK" ]; then
@@ -134,6 +141,7 @@ run_smoke() {
     cd "$GYM/environments/ipi_attacker/miles"
     "$PY" run.py --base-dir "$WORK/models" --ref-load "$WORK/models/${MODEL}_torch_dist" \
         --save-dir "$WORK/checkpoints/${MODEL}_ipi_attacker/" --prompt-data "$WORK/ipi-attacker-data/train.jsonl" \
+        "${MODEL_ARGS[@]}" \
         "$@" 2>&1 | tee "$log"
     echo "log: $log"
 }
@@ -141,6 +149,6 @@ case "$SMOKE" in
     rollout) step "Smoke: one rollout, no training (paid)"; run_smoke rollout --mode debug_rollout_only --num-rollout 1 ;;
     train) step "Smoke: three GRPO steps (paid)"; run_smoke train ;;
     *) step "Set up. Next, in tmux:"
-       echo "  bash $0 --zip $ZIP --data $DATA --keys $KEYS --smoke rollout"
-       echo "  bash $0 --zip $ZIP --data $DATA --keys $KEYS --smoke train" ;;
+       echo "  bash $0 --zip $ZIP --data $DATA --keys $KEYS$SMALL_FLAG --smoke rollout"
+       echo "  bash $0 --zip $ZIP --data $DATA --keys $KEYS$SMALL_FLAG --smoke train" ;;
 esac
