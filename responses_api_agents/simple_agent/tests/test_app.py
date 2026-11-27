@@ -107,6 +107,8 @@ from nemo_gym.server_runtime import (
 )
 from nemo_gym.trajectory import AgentObservationBundle, TrajectoryRecord
 from responses_api_agents.simple_agent.app import (
+    POLICY_API_KEY_HEADER,
+    POLICY_BASE_URL_HEADER,
     POLICY_TIMEOUT_OPERATION,
     ModelServerRef,
     ResourcesServerRef,
@@ -4453,3 +4455,86 @@ class TestContinuationSessions:
             "call-resp-1",
             "call-resp-3",
         ]
+
+
+class TestPolicyEndpoint:
+    POLICY = {POLICY_BASE_URL_HEADER: "http://trainer:9000/session/7/v1", POLICY_API_KEY_HEADER: "secret"}
+
+    @staticmethod
+    def agent(allow: bool = True) -> tuple[SimpleAgent, MagicMock]:
+        server, server_client = _make_agent(False)
+        server.config.allow_policy_base_url = allow
+        return server, server_client
+
+    async def test_a_policy_endpoint_is_refused_unless_the_config_allows_it(self) -> None:
+        server, server_client = self.agent(allow=False)
+        reply = TestClient(server.setup_webserver()).post("/v1/responses", json={"input": "goal"}, headers=self.POLICY)
+        assert reply.status_code == 400
+        server_client.post.assert_not_called()
+
+    async def test_run_sends_its_policy_endpoint_to_the_turn_loop_and_not_to_verify(self) -> None:
+        server, server_client = self.agent()
+        reply = {
+            "id": "r",
+            "created_at": 0.0,
+            "model": "m",
+            "object": "response",
+            "output": [],
+            "parallel_tool_calls": True,
+            "tool_choice": "auto",
+            "tools": [],
+        }
+
+        async def post(*, url_path, **kwargs):
+            if url_path.endswith("/v1/responses"):
+                return _mock_response(reply)
+            return _mock_response(kwargs["json"] | {"reward": 1.0} if url_path == "/verify" else None)
+
+        server_client.post = AsyncMock(side_effect=post)
+        body = SimpleAgentRunRequest.model_validate(
+            {
+                "responses_create_params": {"input": "hi"},
+                "policy_base_url": "http://trainer:9000/session/7/v1",
+                "policy_api_key": "secret",
+            }
+        )
+        await server.run(MagicMock(cookies={}), body)
+
+        calls = {c.kwargs["url_path"]: c.kwargs for c in server_client.post.await_args_list}
+        assert calls["/v1/responses"]["headers"] == self.POLICY
+        assert not {"policy_base_url", "policy_api_key"} & set(calls["/verify"]["json"])
+
+    async def test_policy_calls_go_to_the_endpoint_as_chat_completions(self, monkeypatch: MonkeyPatch) -> None:
+        server, server_client = self.agent()
+        server_client.global_config_dict = {"observability_enabled": False, "policy_model_name": "attacker"}
+        sent = []
+
+        async def direct_request(**kwargs):
+            sent.append(kwargs)
+            return _mock_response(
+                {
+                    "id": "c",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "attacker",
+                    "choices": [
+                        {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "the fill"}}
+                    ],
+                }
+            )
+
+        monkeypatch.setattr("responses_api_agents.simple_agent.app.http_request", direct_request)
+        client = TestClient(server.setup_webserver())
+        reply = client.post(
+            "/v1/responses", json={"input": [{"role": "user", "content": "goal"}]}, headers=self.POLICY
+        )
+
+        assert reply.status_code == 200
+        assert reply.json()["output"][-1]["content"][0]["text"] == "the fill"
+        server_client.post.assert_not_called()
+        assert sent[0]["url"] == "http://trainer:9000/session/7/v1/chat/completions"
+        assert sent[0]["headers"] == {"Authorization": "Bearer secret"}
+        assert (sent[0]["json"]["model"], sent[0]["json"]["messages"]) == (
+            "attacker",
+            [{"role": "user", "content": "goal"}],
+        )

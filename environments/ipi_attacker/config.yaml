@@ -1,0 +1,25 @@
+config_paths:
+- resources_servers/ipi_attacker/configs/ipi_attacker.yaml
+
+ipi_attacker_agent:
+  responses_api_agents:
+    simple_agent:
+      entrypoint: app.py
+      resources_server:
+        type: resources_servers
+        name: ipi_attacker_resources_server
+      model_server:
+        type: responses_api_models
+        name: policy_model
+      datasets:
+      - name: example
+        type: example
+        jsonl_fpath: environments/ipi_attacker/data/example.jsonl
+        license: TBD
+ipi_attacker_environment_server:
+  environment_servers:
+    legacy_agent:
+      entrypoint: app.py
+      agent_server:
+        type: responses_api_agents
+        name: ipi_attacker_agent
